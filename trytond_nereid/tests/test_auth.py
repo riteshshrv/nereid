@@ -136,7 +136,7 @@ class TestAuth(NereidTestCase):
         with Transaction().set_context(active_test=False):
             self.assertEqual(
                 self.nereid_user_obj.search(
-                    [('email', 'ilike', data['email'])], count=True
+                    [('email', '=', data['email'].lower())], count=True
                 ), 1
             )
 
@@ -197,7 +197,7 @@ class TestAuth(NereidTestCase):
         with Transaction().set_context(active_test=False):
             self.assertEqual(
                 self.nereid_user_obj.search(
-                    [('email', 'ilike', data['email'])], count=True
+                    [('email', '=', data['email'].lower())], count=True
                 ), 1
             )
 
@@ -261,7 +261,7 @@ class TestAuth(NereidTestCase):
 
             with Transaction().set_context(active_test=False):
                 registered_user, = self.nereid_user_obj.search(
-                    [('email', 'ilike', data['email'])]
+                    [('email', '=', data['email'].lower())]
                 )
             self.assertFalse(registered_user.email_verified)
 
@@ -302,7 +302,7 @@ class TestAuth(NereidTestCase):
 
             with Transaction().set_context(active_test=False):
                 registered_user, = self.nereid_user_obj.search(
-                    [('email', 'ilike', data['email'])]
+                    [('email', '=', data['email'].lower())]
                 )
             self.assertFalse(registered_user.active)
 
@@ -1200,6 +1200,53 @@ class TestAuth(NereidTestCase):
 
             response = c.get("/me")
             self.assertEqual(response.status_code, 200)
+
+    @with_transaction()
+    def test_case_insensitiveness_of_email_search(self):
+        """
+        Email is now case insensitive
+        """
+        Party = POOL.get('party.party')
+        NereidUser = POOL.get('nereid.user')
+
+        self.setup_defaults()
+        app = self.get_app()
+
+        # create a party
+        party1, = Party.create([{'name': 'John Doe'}])
+
+        NereidUser.create([{
+            'party': party1.id,
+            'email': 'john_doe@xyz.com',
+            'password': 'doe',
+            'name': 'John Doe',
+            'email_verified': True,
+            'company': self.company.id
+        }])
+
+        app = self.get_app()
+
+        with app.test_client() as c:
+            response = c.get('/registration')
+            self.assertEqual(response.status_code, 200)   # GET Request
+
+            data = {
+                'name': 'John Doe',
+                'email': 'JOHN_DOE@XYZ.com',
+                'password': 'password',
+                'confirm': 'password',
+            }
+            # Registering again with same email but of different case
+            # should notify about existing registration
+            response = c.post(
+                '/registration', data=json.dumps(data),
+                content_type='application/json'
+            )
+            self.assertEqual(response.status_code, 400)  # Form rejected
+            self.assertTrue(
+                "A registration already exists with this email"
+                in response.data
+            )
 
 
 def suite():
